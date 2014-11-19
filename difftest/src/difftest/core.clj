@@ -74,6 +74,15 @@
        (binding [*color* false]
          (apply run-tests namespaces)))))
 
+(def ^:private test-durations
+  (atom {}))
+
+(defn- stamp-time
+  ([op m]
+     (stamp-time test-durations op m))
+  ([store op m]
+     (swap! test-durations assoc-in [(:var m) op] (System/nanoTime))))
+
 (defn activate
   "Redefine clojure.test/report methods to be difftest-aware."
   []
@@ -109,6 +118,12 @@
                       :yellow
                       :else :green)]
       (ct/with-test-out
+        (doseq [[var {:keys [start finish]}] @test-durations]
+          (println (format "%s/%s took %.3f seconds"
+                           (-> var meta :ns)
+                           (-> var meta :name)
+                           (/ (- finish start) 10e9))))
+        (reset! test-durations {})
         (print-with-style [:bright color]
           "\nRan" (:test m) "tests containing"
           (+ (:pass m) (:fail m) (:error m)) "assertions.")
@@ -117,4 +132,10 @@
 
   (defmethod ct/report :begin-test-ns [m]
     (ct/with-test-out
-      (print-with-style [:bright :underline] "\nTesting" (ns-name (:ns m))))))
+      (print-with-style [:bright :underline] "\nTesting" (ns-name (:ns m)))))
+
+  (defmethod ct/report :begin-test-var [m]
+    (stamp-time :start m))
+
+  (defmethod ct/report :end-test-var [m]
+    (stamp-time :finish m)))
